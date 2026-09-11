@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="bg">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Население на Китай 2024 – Мъже / Жени / Гъстота</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0f172a; color: #e2e8f0; }
+    #map { width: 100%; height: 100vh; }
+    .info {
+      padding: 12px 16px;
+      background: rgba(15, 23, 42, 0.92);
+      border-radius: 10px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+      border: 1px solid #334155;
+      min-width: 220px;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    .info h3 { margin: 0 0 8px; font-size: 15px; color: #38bdf8; }
+    .info .row { display: flex; justify-content: space-between; gap: 12px; }
+    .info .label { color: #94a3b8; }
+    .info .value { font-weight: 600; color: #f1f5f9; }
+    .legend {
+      background: rgba(15, 23, 42, 0.92);
+      padding: 12px 14px;
+      border-radius: 10px;
+      border: 1px solid #334155;
+      font-size: 12px;
+      line-height: 1.6;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+    }
+    .legend h4 { margin: 0 0 8px; color: #38bdf8; font-size: 13px; }
+    .legend i {
+      width: 18px; height: 14px;
+      display: inline-block;
+      margin-right: 8px;
+      border-radius: 2px;
+      vertical-align: middle;
+    }
+    .legend .pie-demo {
+      display: flex; align-items: center; gap: 8px; margin-top: 10px;
+    }
+    .title-box {
+      background: rgba(15, 23, 42, 0.95);
+      padding: 10px 18px;
+      border-radius: 10px;
+      border: 1px solid #334155;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+      text-align: center;
+    }
+    .title-box h1 { font-size: 16px; color: #f8fafc; margin: 0; }
+    .title-box p { font-size: 11px; color: #94a3b8; margin-top: 2px; }
+    .leaflet-popup-content-wrapper {
+      background: #1e293b;
+      color: #e2e8f0;
+      border-radius: 10px;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.5);
+    }
+    .leaflet-popup-tip { background: #1e293b; }
+    .leaflet-popup-content { margin: 12px 14px; font-size: 13px; }
+    .popup-title { font-size: 15px; font-weight: 700; color: #38bdf8; margin-bottom: 6px; }
+    .popup-row { display: flex; justify-content: space-between; gap: 16px; margin: 3px 0; }
+    .popup-label { color: #94a3b8; }
+    .bar-container { height: 10px; background: #334155; border-radius: 5px; margin: 8px 0 4px; overflow: hidden; display: flex; }
+    .bar-male { background: #3b82f6; height: 100%; }
+    .bar-female { background: #ec4899; height: 100%; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="china_data.js"></script>
+  <script>
+    // ===== Map =====
+    const map = L.map('map', {
+      center: [35.5, 104],
+      zoom: 4,
+      minZoom: 3,
+      maxZoom: 10,
+      zoomControl: false
+    });
+    L.control.zoom({ position: 'topright' }).addTo(map);
+
+    // Dark basemap
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      attribution: '&copy; OpenStreetMap &copy; CARTO',
+      subdomains: 'abcd',
+      maxZoom: 19
+    }).addTo(map);
+
+    // ===== Color scale for density =====
+    function getDensityColor(d) {
+      return d > 1000 ? '#7f1d1d' :
+             d > 500  ? '#b91c1c' :
+             d > 300  ? '#dc2626' :
+             d > 150  ? '#f97316' :
+             d > 80   ? '#eab308' :
+             d > 30   ? '#84cc16' :
+             d > 10   ? '#22c55e' :
+                        '#166534';
+    }
+
+    function style(feature) {
+      const dens = feature.properties.Density_Pop_km2 || 0;
+      return {
+        fillColor: getDensityColor(dens),
+        weight: 1.2,
+        opacity: 1,
+        color: '#1e293b',
+        fillOpacity: 0.75
+      };
+    }
+
+    // ===== Format helpers =====
+    function fmt(n) {
+      if (n >= 1e8) return (n / 1e8).toFixed(2) + ' млрд';
+      if (n >= 1e4) return (n / 1e4).toFixed(1) + ' млн';
+      return n.toLocaleString('bg-BG');
+    }
+
+    function popupContent(props) {
+      const malePct = (props.Pop_Male / props.Pop_Total_Absolute * 100).toFixed(1);
+      const femalePct = (props.Pop_Female / props.Pop_Total_Absolute * 100).toFixed(1);
+      const nameBG = props.Region_BG || props.Region;
+      return `
+        <div class="popup-title">${nameBG}</div>
+        <div style="font-size:11px;color:#94a3b8;margin-bottom:6px;">${props.name_zh || ''} · ${props.Region}</div>
+        <div class="popup-row"><span class="popup-label">Общо население</span><span>${fmt(props.Pop_Total_Absolute)}</span></div>
+        <div class="popup-row"><span class="popup-label">Мъже</span><span style="color:#60a5fa">${fmt(props.Pop_Male)} (${malePct}%)</span></div>
+        <div class="popup-row"><span class="popup-label">Жени</span><span style="color:#f472b6">${fmt(props.Pop_Female)} (${femalePct}%)</span></div>
+        <div class="bar-container">
+          <div class="bar-male" style="width:${malePct}%"></div>
+          <div class="bar-female" style="width:${femalePct}%"></div>
+        </div>
+        <div class="popup-row"><span class="popup-label">Площ</span><span>${props.Area_km2.toLocaleString('bg-BG')} км²</span></div>
+        <div class="popup-row"><span class="popup-label">Гъстота</span><span><b>${props.Density_Pop_km2}</b> души/км²</span></div>
+      `;
+    }
+
+    // ===== Choropleth layer =====
+    const geoLayer = L.geoJSON(chinaData, {
+      style: style,
+      onEachFeature: function (feature, layer) {
+        layer.bindPopup(popupContent(feature.properties), { maxWidth: 280 });
+        layer.on({
+          mouseover: function (e) {
+            e.target.setStyle({ weight: 2.5, color: '#38bdf8', fillOpacity: 0.9 });
+            e.target.bringToFront();
+            info.update(feature.properties);
+          },
+          mouseout: function (e) {
+            geoLayer.resetStyle(e.target);
+            info.update();
+          }
+        });
+      }
+    }).addTo(map);
+
+    // ===== Pie chart markers (male / female) =====
+    function createPieIcon(male, female, size) {
+      const total = male + female;
+      const malePct = male / total;
+      const r = size / 2;
+      const cx = r, cy = r;
+      // SVG pie
+      const maleAngle = malePct * 360;
+      const large = maleAngle > 180 ? 1 : 0;
+      const rad = (deg) => (deg - 90) * Math.PI / 180;
+      const x1 = cx + r * Math.cos(rad(0));
+      const y1 = cy + r * Math.sin(rad(0));
+      const x2 = cx + r * Math.cos(rad(maleAngle));
+      const y2 = cy + r * Math.sin(rad(maleAngle));
+
+      const svg = `
+        <svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="${cx}" cy="${cy}" r="${r}" fill="#ec4899"/>
+          <path d="M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2} Z" fill="#3b82f6"/>
+          <circle cx="${cx}" cy="${cy}" r="${r * 0.35}" fill="#0f172a" opacity="0.85"/>
+        </svg>`;
+      return L.divIcon({
+        html: svg,
+        className: '',
+        iconSize: [size, size],
+        iconAnchor: [r, r]
+      });
+    }
+
+    // Size scale based on total population
+    const pops = chinaData.features.map(f => f.properties.Pop_Total_Absolute);
+    const minPop = Math.min(...pops);
+    const maxPop = Math.max(...pops);
+
+    function getSize(pop) {
+      // 18px – 48px
+      const t = (pop - minPop) / (maxPop - minPop);
+      return 18 + t * 30;
+    }
+
+    chinaData.features.forEach(f => {
+      const p = f.properties;
+      // Centroid approx from bbox or use first coordinate
+      let lat, lng;
+      try {
+        const coords = f.geometry.coordinates;
+        // Simple average of outer ring
+        let ring = coords[0];
+        if (f.geometry.type === 'MultiPolygon') ring = coords[0][0];
+        let sumLng = 0, sumLat = 0;
+        ring.forEach(c => { sumLng += c[0]; sumLat += c[1]; });
+        lng = sumLng / ring.length;
+        lat = sumLat / ring.length;
+      } catch (e) {
+        return;
+      }
+
+      const size = getSize(p.Pop_Total_Absolute);
+      const marker = L.marker([lat, lng], {
+        icon: createPieIcon(p.Pop_Male, p.Pop_Female, size),
+        interactive: true
+      });
+      marker.bindPopup(popupContent(p), { maxWidth: 280 });
+      marker.addTo(map);
+    });
+
+    // ===== Info control =====
+    const info = L.control({ position: 'topleft' });
+    info.onAdd = function () {
+      this._div = L.DomUtil.create('div', 'info');
+      this.update();
+      return this._div;
+    };
+    info.update = function (props) {
+      if (!props) {
+        this._div.innerHTML = '<h3>Население на Китай 2024</h3><div style="color:#94a3b8">Задръж мишката върху провинция</div>';
+        return;
+      }
+      this._div.innerHTML = `
+        <h3>${props.Region_BG || props.Region}</h3>
+        <div class="row"><span class="label">Население</span><span class="value">${fmt(props.Pop_Total_Absolute)}</span></div>
+        <div class="row"><span class="label">Мъже</span><span class="value" style="color:#60a5fa">${fmt(props.Pop_Male)}</span></div>
+        <div class="row"><span class="label">Жени</span><span class="value" style="color:#f472b6">${fmt(props.Pop_Female)}</span></div>
+        <div class="row"><span class="label">Гъстота</span><span class="value">${props.Density_Pop_km2} д./км²</span></div>
+      `;
+    };
+    info.addTo(map);
+
+    // ===== Title =====
+    const title = L.control({ position: 'topleft' });
+    title.onAdd = function () {
+      const div = L.DomUtil.create('div', 'title-box');
+      div.innerHTML = '<h1>Население на Китай 2024</h1><p>Гъстота + съотношение мъже / жени</p>';
+      return div;
+    };
+    // Place title above info by adding first
+    // (already have info, so we adjust order via CSS if needed)
+
+    // ===== Legend =====
+    const legend = L.control({ position: 'bottomright' });
+    legend.onAdd = function () {
+      const div = L.DomUtil.create('div', 'legend');
+      const grades = [0, 10, 30, 80, 150, 300, 500, 1000];
+      let html = '<h4>Гъстота (души/км²)</h4>';
+      for (let i = 0; i < grades.length; i++) {
+        const from = grades[i];
+        const to = grades[i + 1];
+        html += `<div><i style="background:${getDensityColor(from + 1)}"></i> ${from}${to ? ' – ' + to : '+'}</div>`;
+      }
+      html += `
+        <div style="margin-top:12px; border-top:1px solid #334155; padding-top:8px;">
+          <strong>Кръгови диаграми</strong>
+          <div class="pie-demo">
+            <svg width="22" height="22" viewBox="0 0 22 22">
+              <circle cx="11" cy="11" r="11" fill="#ec4899"/>
+              <path d="M11 11 L11 0 A11 11 0 0 1 20.5 16.5 Z" fill="#3b82f6"/>
+            </svg>
+            <span><span style="color:#60a5fa">■</span> Мъже &nbsp; <span style="color:#f472b6">■</span> Жени</span>
+          </div>
+          <div style="font-size:11px;color:#94a3b8;margin-top:4px;">Размер = общо население</div>
+          <div style="font-size:11px;color:#94a3b8;">Цвят на областите = гъстота</div>
+        </div>
+        <div style="margin-top:8px;font-size:11px;color:#64748b;">
+          Средна гъстота: <b style="color:#e2e8f0">146.3</b> д./км²
+        </div>
+      `;
+      div.innerHTML = html;
+      return div;
+    };
+    legend.addTo(map);
+
+    // Fit bounds
+    
+    // ===== Province labels (Bulgarian) =====
+    const labelLayer = L.layerGroup();
+    chinaData.features.forEach(f => {
+      const p = f.properties;
+      let lat, lng;
+      try {
+        let ring = f.geometry.coordinates[0];
+        if (f.geometry.type === 'MultiPolygon') ring = f.geometry.coordinates[0][0];
+        let sumLng = 0, sumLat = 0;
+        ring.forEach(c => { sumLng += c[0]; sumLat += c[1]; });
+        lng = sumLng / ring.length;
+        lat = sumLat / ring.length;
+      } catch(e) { return; }
+
+      const name = p.Region_BG || p.Region;
+      // Only show labels for larger provinces or at higher zoom
+      const label = L.marker([lat, lng], {
+        icon: L.divIcon({
+          className: 'province-label',
+          html: `<span>${name}</span>`,
+          iconSize: [80, 18],
+          iconAnchor: [40, 9]
+        }),
+        interactive: false
+      });
+      labelLayer.addLayer(label);
+    });
+    labelLayer.addTo(map);
+
+    // Show/hide labels by zoom
+    function updateLabels() {
+      if (map.getZoom() >= 5) {
+        if (!map.hasLayer(labelLayer)) map.addLayer(labelLayer);
+      } else {
+        if (map.hasLayer(labelLayer)) map.removeLayer(labelLayer);
+      }
+    }
+    map.on('zoomend', updateLabels);
+    updateLabels();
+
+    map.fitBounds(geoLayer.getBounds().pad(0.02));
+    // Restrict panning roughly to China
+    map.setMaxBounds([[15, 70], [55, 140]]);
+  </script>
+</body>
+</html>
+PYEOF
